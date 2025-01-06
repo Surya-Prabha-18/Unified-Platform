@@ -1,0 +1,94 @@
+import requests
+import json
+import time
+
+def fetch_problem_details():
+    base_url = "https://uhunt.onlinejudge.org/api"
+    output_file = "detailed_uva_problems.json"
+    retries = 3
+    delay = 1
+
+    try:
+        # Fetch all problem metadata
+        print("Fetching problem metadata...")
+        response = requests.get(f"{base_url}/p")
+        if response.status_code != 200:
+            print(f"Failed to fetch problem metadata. Status Code: {response.status_code}")
+            return
+        
+        problems = response.json()
+
+        # Load progress if available
+        try:
+            with open(output_file, "r", encoding="utf-8") as file:
+                detailed_problems = json.load(file)
+                processed_ids = {p["Problem ID"] for p in detailed_problems}
+        except FileNotFoundError:
+            detailed_problems = []
+            processed_ids = set()
+
+        print("Fetching detailed statistics for each problem...")
+        for idx, problem in enumerate(problems):
+            problem_id = problem[0]
+            problem_number = problem[1]
+            problem_title = problem[2]
+
+            if problem_id in processed_ids:
+                continue  # Skip already processed problems
+
+            # Fetch detailed stats with retry
+            stats_response = None
+            for attempt in range(retries):
+                try:
+                    stats_response = requests.get(f"{base_url}/p/id/{problem_id}")
+                    stats_response.raise_for_status()
+                    break
+                except requests.exceptions.RequestException:
+                    if attempt < retries - 1:
+                        print(f"Retrying problem ID {problem_id} (Attempt {attempt + 2}/{retries})...")
+                        time.sleep(delay)
+                    else:
+                        print(f"Failed to fetch stats for problem ID {problem_id}")
+            
+            if stats_response:
+                stats = stats_response.json()
+                detailed_problems.append({
+                    "Problem ID": problem_id,
+                    "Problem Number": problem_number,
+                    "Problem Title": problem_title,
+                    "Number of Distinct Accepted Users (DACU)": stats.get("dac", 0),
+                    "Best Runtime of an Accepted Submission": stats.get("best_runtime", None),
+                    "Best Memory used of an Accepted Submission": stats.get("best_mem", None),
+                    "Number of No Verdict Given": stats.get("nvg", 0),
+                    "Number of Submission Error": stats.get("se", 0),
+                    "Number of Can't be Judged": stats.get("cbj", 0),
+                    "Number of In Queue": stats.get("iq", 0),
+                    "Number of Compilation Error": stats.get("ce", 0),
+                    "Number of Restricted Function": stats.get("rf", 0),
+                    "Number of Runtime Error": stats.get("re", 0),
+                    "Number of Output Limit Exceeded": stats.get("ole", 0),
+                    "Number of Time Limit Exceeded": stats.get("tle", 0),
+                    "Number of Memory Limit Exceeded": stats.get("mle", 0),
+                    "Number of Wrong Answer": stats.get("wa", 0),
+                    "Number of Presentation Error": stats.get("pe", 0),
+                    "Number of Accepted": stats.get("ac", 0),
+                    "Problem Run-Time Limit (milliseconds)": stats.get("rtl", None),
+                    "Problem Status": stats.get("status", 0),
+                })
+
+            # Save progress periodically
+            if idx % 100 == 0 or idx == len(problems) - 1:
+                with open(output_file, "w", encoding="utf-8") as file:
+                    json.dump(detailed_problems, file, indent=4)
+                print(f"Saved progress at {idx + 1} problems...")
+
+            # Delay between requests
+            time.sleep(0.5)
+
+        print(f"Successfully saved detailed problem data to '{output_file}'.")
+
+    except requests.exceptions.RequestException as e:
+        print(f"An error occurred: {e}")
+
+# Call the function
+fetch_problem_details()
